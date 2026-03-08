@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sandboxing AI coding agents with Landlock and Nix</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #333;
+            background-color: #fafafa;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 2em;
+            font-weight: 700;
+            margin-bottom: 30px;
+            line-height: 1.2;
+            color: #222;
+        }
+
+        h2 {
+            font-size: 1.5em;
+            font-weight: 700;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            color: #222;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        p {
+            margin-bottom: 18px;
+            color: #555;
+        }
+
+        strong {
+            font-weight: 700;
+            color: #222;
+        }
+
+        ul {
+            margin: 20px 0 20px 40px;
+            padding: 0;
+        }
+
+        li {
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        code {
+            background-color: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+            color: #333;
+        }
+
+        pre {
+            background-color: #2d2d2d;
+            color: #f8f8f2;
+            padding: 16px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 20px 0;
+            line-height: 1.4;
+        }
+
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            color: inherit;
+            border-radius: 0;
+        }
+
+        /* Responsive design for smaller screens */
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+                margin-bottom: 20px;
+            }
+
+            h2 {
+                font-size: 1.2em;
+                margin-top: 30px;
+            }
+
+            pre {
+                padding: 12px;
+                font-size: 0.85em;
+            }
+
+            ul {
+                margin-left: 20px;
+            }
+        }
+        /* --- NEW HERO STYLES --- */
+        body {
+            padding: 0;
+        }
+
+        .containment-hero {
+            position: relative;
+            width: 100%;
+            height: 420px;
+            background-color: #0b1120;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 20px;
+            overflow: hidden;
+        }
+
+        .containment-hero::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                linear-gradient(rgba(45, 212, 191, 0.07) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(45, 212, 191, 0.07) 1px, transparent 1px);
+            background-size: 30px 30px;
+            background-position: center center;
+            z-index: 1;
+        }
+
+        .containment-hero::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            max-width: 900px;
+            height: 100%;
+            background: radial-gradient(ellipse at center, rgba(20, 184, 166, 0.15) 0%, transparent 60%);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .hero-boundaries {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 3;
+            pointer-events: none;
+            border-top: 2px solid rgba(45, 212, 191, 0.3);
+            border-bottom: 4px solid #0d9488;
+            box-shadow: inset 0 20px 40px -20px rgba(45, 212, 191, 0.1),
+                        inset 0 -20px 40px -20px rgba(45, 212, 191, 0.2);
+        }
+
+        .hero-scanline {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: rgba(45, 212, 191, 0.5);
+            box-shadow: 0 0 10px rgba(45, 212, 191, 0.8);
+            z-index: 4;
+            animation: scan 6s linear infinite;
+            opacity: 0.6;
+        }
+
+        @keyframes scan {
+            0% { top: -10%; opacity: 0; }
+            10% { opacity: 0.6; }
+            90% { opacity: 0.6; }
+            100% { top: 110%; opacity: 0; }
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 10;
+            max-width: 760px;
+            background: rgba(11, 17, 32, 0.8);
+            padding: 45px;
+            border: 1px solid rgba(45, 212, 191, 0.3);
+            border-radius: 4px;
+            box-shadow: 0 0 30px rgba(13, 148, 136, 0.2), 
+                        inset 0 0 20px rgba(13, 148, 136, 0.1);
+            background-image: 
+                linear-gradient(#2dd4bf, #2dd4bf), linear-gradient(#2dd4bf, #2dd4bf),
+                linear-gradient(#2dd4bf, #2dd4bf), linear-gradient(#2dd4bf, #2dd4bf),
+                linear-gradient(#2dd4bf, #2dd4bf), linear-gradient(#2dd4bf, #2dd4bf),
+                linear-gradient(#2dd4bf, #2dd4bf), linear-gradient(#2dd4bf, #2dd4bf);
+            background-repeat: no-repeat;
+            background-size: 16px 2px, 2px 16px;
+            background-position: 
+                0 0, 0 0, 
+                100% 0, 100% 0, 
+                100% 100%, 100% 100%, 
+                0 100%, 0 100%;
+        }
+
+        .containment-hero h1 {
+            color: #f8fafc;
+            font-size: 2.4em;
+            font-weight: 700;
+            margin-bottom: 16px;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+        }
+
+        .containment-hero p.subtitle {
+            color: #5eead4;
+            font-size: 1.2em;
+            font-weight: 400;
+            margin: 0;
+            font-family: "Courier New", Courier, monospace;
+            letter-spacing: 0.02em;
+        }
+
+        div.container {
+            margin: -40px auto 40px auto;
+            position: relative;
+            z-index: 10;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        @media (max-width: 600px) {
+            .containment-hero {
+                height: 350px;
+                padding: 0 15px;
+            }
+            .hero-content {
+                padding: 30px 20px;
+            }
+            .containment-hero h1 {
+                font-size: 1.8em;
+            }
+            .containment-hero p.subtitle {
+                font-size: 1em;
+            }
+            div.container {
+                margin: -20px auto 20px auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="containment-hero">
+        <div class="hero-boundaries"></div>
+        <div class="hero-scanline"></div>
+        <div class="hero-content">
+            <h1>Sandboxing AI coding agents with Landlock and Nix</h1>
+            <p class="subtitle">Kernel-level protection for your development environment</p>
+        </div>
+    </div>
+    <div class="container">
+
+        <p>Most AI coding agents — Claude Code, GitHub Copilot CLI, Gemini CLI, OpenAI Codex, opencode — run with your full user permissions. They can read your SSH keys, API tokens, credential files, browser cookies, anything in your home directory. If an agent gets tricked by a prompt injection, it can exfiltrate all of it over the network.</p>
+
+        <p>This isn't theoretical. The <a href="https://adnanthekhan.com/posts/clinejection/">Clinejection attack</a> demonstrated exactly this: an attacker plants a malicious prompt in a PR description or a file in the repo. When the agent reads it, it follows the injected instructions to steal credentials and send them to a remote server. The agent has your permissions, so it succeeds.</p>
+
+        <p>I built <a href="https://github.com/rolfst/ai-cage">ai-cage</a> to reduce this attack surface. It's a reusable Nix flake that uses the Landlock Linux Security Module to sandbox AI coding agents with a default-deny policy.</p>
+
+        <h2>How it works</h2>
+
+        <p>Landlock is an unprivileged LSM — no root required. It lets a process permanently restrict its own filesystem and network access. I use <a href="https://github.com/Zouuup/landrun">landrun</a> as the CLI wrapper.</p>
+
+        <p>When you run an agent inside ai-cage, it gets:</p>
+
+        <ul>
+            <li><strong>A private HOME directory.</strong> Your real home stays hidden. The agent sees only its own isolated state directory.</li>
+            <li><strong>SSH agent forwarding without key file access.</strong> The agent can <code>git push</code> over SSH via the agent socket, but it cannot read <code>~/.ssh/id_*</code> from disk.</li>
+            <li><strong>Restricted network.</strong> Only explicitly allowed ports — 443 and 22 by default.</li>
+            <li><strong>Nix store execute whitelist.</strong> Only the packages you list get execute permission. Everything else in the store is read-only.</li>
+            <li><strong>Permanent, inherited restrictions.</strong> Once the cage is active, every child process inherits the rules. They cannot be lifted — not by the agent, not by anything it spawns.</li>
+        </ul>
+
+        <h2>Why Landlock instead of containers?</h2>
+
+        <p>The first question most people will ask. Containers (Docker, Podman, bubblewrap) create full filesystem isolation using mount namespaces — you build a separate root filesystem, then bind-mount in what you need. Landlock works the opposite way: your process stays in the same filesystem, but the kernel denies access to paths you didn't allow. For AI coding agents, this difference matters a lot.</p>
+
+        <p><strong>The bind mount pain.</strong> Rootless containers remap UIDs via user namespaces. When you bind-mount your project directory into a Podman container, files created inside can appear as <code>nobody:nogroup</code> on the host. Git breaks because <code>.git/config</code> has strict ownership requirements. File watchers (inotify) don't reliably propagate across mount boundaries, so LSP servers and tools like <code>nodemon</code> stop working. With Landlock there's no UID remapping and no mount boundary — the agent runs as your UID in your filesystem. Files it creates are owned by you. Git just works.</p>
+
+        <p><strong>SSH agent forwarding.</strong> Containers require you to bind-mount <code>$SSH_AUTH_SOCK</code> and get the socket permissions right across the UID namespace boundary. Rootless Podman's docs devote entire sections to this because it's genuinely hard. With Landlock, the agent shares your session — <code>$SSH_AUTH_SOCK</code> just works because there's no namespace boundary to cross.</p>
+
+        <p><strong>Nix integration.</strong> Running Nix tools inside a container means either bind-mounting <code>/nix/store</code> (coupling the container to the host store) or running a Nix daemon inside (slow, duplicates store content). With Landlock you just allow read access to <code>/nix/store</code> — no daemon, no bind mounts, no duplication. The entire cage definition is ~50 lines of Nix.</p>
+
+        <p><strong>The tradeoff.</strong> Landlock only does access control. No PID namespace (the agent can see host processes), no network namespace (it shares your network stack), no mount isolation. If you need full environment isolation, containers are the right tool. But for "let the AI edit my code without reading my SSH keys" — Landlock's access control is sufficient and eliminates all the container plumbing.</p>
+
+        <h2>Using it</h2>
+
+        <p>Import <code>github:rolfst/ai-cage</code> into your flake and define your cage:</p>
+
+        <pre><code>caged-agent = ai-cage.lib.cage { inherit pkgs; } {
+  name = "claude";
+  profile = "aiAgent";           # preset: HTTPS + SSH + private HOME
+  argv = [ "${pkgs.claude-code}/bin/claude" ];
+  packages = with pkgs; [ bashInteractive coreutils git openssh curl ripgrep ];
+
+  filesystem = {
+    ro = [ "$ORIG_HOME/.gitconfig" ];
+    rw = [ "$ORIG_HOME/.config/claude" ];
+  };
+
+  env.pass = [ "ANTHROPIC_API_KEY" ];
+};</code></pre>
+
+        <p>The flake ships three profiles (<code>offline</code>, <code>aiAgent</code>, <code>devNet</code>) and supports fully custom ones. The output is a wrapper script you run instead of the bare agent binary.</p>
+
+        <h2>What it does NOT protect against</h2>
+
+        <p>I want to be upfront about the limitations:</p>
+
+        <ul>
+            <li><strong>Network filtering is port-only.</strong> Landlock cannot filter by IP or hostname. The agent can talk to any server on the allowed ports. For IP-level filtering you'd need nftables or network namespaces (which require root).</li>
+            <li><strong>Env var exfiltration.</strong> If you pass API keys into the cage, the agent could send them over an allowed port. Landlock can't inspect traffic content.</li>
+            <li><strong>No UDP restriction.</strong> Landlock's network controls only cover TCP. DNS (UDP 53) works unfiltered.</li>
+            <li><strong>Linux-only.</strong> Landlock is a Linux kernel feature. You need kernel 6.7+ for network support.</li>
+            <li><strong>Additive permissions within a layer.</strong> You can't make a single file read-only inside a read-write directory within the same Landlock ruleset.</li>
+        </ul>
+
+        <p>The goal is to shrink the blast radius of a prompt injection — not to make it impossible. An agent that can't touch your SSH keys, can't browse your home directory, and can only reach two ports is a much harder target than one running with your full shell.</p>
+
+        <p>Code: <a href="https://github.com/rolfst/ai-cage">github.com/rolfst/ai-cage</a></p>
+    </div>
+</body>
+</html>
