@@ -12,7 +12,7 @@ ai-cage uses Linux Landlock to constrain what a prompt-injected agent can do on 
 
 | Attack | Protected? | How |
 | :--- | :--- | :--- |
-| Read ~/.ssh, ~/.aws, ~/.gnupg, ~/.config | ✅ Yes | HOME is replaced with a private state directory. The real home is invisible to the caged process. |
+| Read ~/.ssh, ~/.aws, ~/.gnupg, ~/.config | ✅ Yes | HOME is replaced with a private state directory. Subdirectories of your real home (like `.ssh/`, `.gnupg/`, `.aws/`, `.config/`) are blocked unless explicitly allowed. See the note on sibling file visibility below. |
 | Read .env files outside the workspace | ✅ Yes | Only the workspace directory and the cage state directory are accessible. |
 | Write or copy files outside the workspace | ✅ Yes | Landlock restricts writes to the workspace and the cage state directory only. |
 | Execute arbitrary binaries (curl, nc, python) | ✅ Yes | Only binaries in the packages closure (or filesystem.rox paths) can execute. If curl is not in your packages list, it cannot run. |
@@ -30,6 +30,7 @@ ai-cage uses Linux Landlock to constrain what a prompt-injected agent can do on 
 | Reading or modifying files within the workspace | The agent needs workspace access to function. A prompt-injected agent can read, modify, or delete any file in the workspace directory. |
 | CI/CD pipeline attacks | ai-cage is a local sandbox. It has no bearing on how your GitHub Actions workflows, build caches, or release pipelines operate. Attacks like Clinejection's cache poisoning stage target CI infrastructure, not your development machine. |
 | Attacks via already-open file descriptors | Landlock cannot restrict file descriptors inherited from the parent process. If the cage wrapper has a file open before exec, the caged process retains access. |
+| Reading dotfiles in the home directory when `filesystem.ro` points to files there | Landlock operates at directory granularity. When you grant `--ro $HOME/.gitconfig`, Landlock must allow the kernel to traverse `$HOME/` to resolve the path. As a side effect, **all sibling files** in `$HOME/` become readable (e.g. `.bashrc`, `.profile`, `.bash_history`). Subdirectories (`.ssh/`, `.gnupg/`, `.aws/`) remain blocked — only files directly in the same directory are exposed. See "Reducing risk further" for mitigation. |
 
 ### Reducing risk further
 
@@ -40,11 +41,17 @@ To minimize the env var exfiltration risk:
 - **Limit env.pass to the minimum.** Don't pass `GITHUB_TOKEN` if the agent doesn't need GitHub access for the current task.
 - **For full network isolation by destination**, you would need nftables or a network namespace with a filtering proxy. This requires root and is outside Landlock's capabilities.
 
+To minimize the home directory sibling file exposure:
+
+- **Avoid `filesystem.ro` paths directly in `$HOME/`.** If you grant `--ro $HOME/.gitconfig`, every file directly in `$HOME/` becomes readable (`.bashrc`, `.profile`, etc.). Subdirectories like `.ssh/` are still blocked.
+- **Copy config files into the cage state directory instead.** Before launching the cage, copy `.gitconfig` to `~/.local/state/ai-cage/{name}/home/.gitconfig`. Then the cage reads from its private HOME and no `--ro` into the real home is needed.
+- **Use subdirectory paths when possible.** Granting `--ro $HOME/.config/git/config` only exposes siblings inside `.config/git/`, not files in `$HOME/` directly.
+
 ## How it works
 
 The tool uses the Landlock Linux Security Module (LSM) via the landrun CLI to enforce a strict default-deny policy.
 Nix closures provide a precise allowlist for executables. Only the binaries in the packages list and their dependencies can run.
-The sandbox replaces your home directory with a private state directory. This prevents access to your real ~/.ssh, ~/.config, or ~/.aws folders.
+The sandbox replaces your home directory with a private state directory. This prevents access to your real ~/.ssh, ~/.config, or ~/.aws folders. Note: if you use `filesystem.ro` to expose specific files in your home directory, sibling files in the same directory become readable (see Threat model).
 
 ## Requirements
 

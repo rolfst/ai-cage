@@ -130,6 +130,18 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   ${rwxFlagsScript}
   ${netFlagsScript}
 
+  # Essential system paths that almost every program needs.
+  # /dev/stdin, /dev/stdout, /dev/stderr are inherited file descriptors and
+  # do not need Landlock rules. /dev/fd is a symlink to /proc/self/fd.
+  landrunArgs+=("--rw" "/dev/null")
+  landrunArgs+=("--rw" "/dev/zero")
+  landrunArgs+=("--ro" "/dev/urandom")
+  landrunArgs+=("--ro" "/dev/random")
+  if [[ -c /dev/tty ]]; then
+    landrunArgs+=("--rw" "/dev/tty")
+  fi
+  landrunArgs+=("--rw" "/tmp")
+
   landrunArgs+=("--rw" "$STATE")
   landrunArgs+=("--rw" "$WORKSPACE")
 
