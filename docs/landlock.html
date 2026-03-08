@@ -214,6 +214,18 @@
 
     <p><strong>Tradeoff:</strong> Landlock is access control, not full environment virtualization. It does not provide PID/network/mount namespaces.</p>
 
+    <h2>ai-cage vs other Nix jailing options</h2>
+
+    <p>If you're already in the Nix ecosystem, there are multiple ways to sandbox AI tools. Here's the practical comparison I ended up with:</p>
+    <ul>
+      <li><strong>ai-cage (Landlock + landrun):</strong> best for day-to-day AI coding on your real workspace. Same UID, same filesystem, low friction, no root required.</li>
+      <li><strong><a href="https://github.com/andersonjoseph/jailed-agents">jailed-agents</a> (bubblewrap/jail.nix):</strong> stronger filesystem illusion via mount namespaces, but more operational friction (bind mounts, occasional ownership/watcher weirdness, more moving parts).</li>
+      <li><strong><code>nix develop</code> / pure shells only:</strong> reproducibility and dependency isolation are great, but this is <strong>not</strong> a security boundary by itself; processes still run with your user permissions.</li>
+      <li><strong>NixOS containers / podman-nix setups:</strong> stronger isolation layers and cleaner network separation, but heavier workflow and more setup complexity for local editing loops.</li>
+    </ul>
+
+    <p>For the specific threat model "AI can edit my repo but should not read my secrets," ai-cage is the best balance of security and usability I found.</p>
+
     <h2>Using it</h2>
 
     <p>Import <code>github:rolfst/ai-cage</code> into your flake and define a cage wrapper:</p>
@@ -234,7 +246,7 @@
 
     <p><code>ai-cage</code> ships three profiles (<code>offline</code>, <code>aiAgent</code>, <code>devNet</code>) and supports custom profiles.</p>
 
-    <h2>2026 update: hard-earned lessons</h2>
+    <h2>Hard-earned lessons</h2>
 
     <ul>
       <li><strong><code>/dev</code> and <code>/tmp</code> are mandatory for real workloads.</strong> Restricting too aggressively breaks common tools. ai-cage now explicitly grants safe required device paths and <code>/tmp</code> access.</li>

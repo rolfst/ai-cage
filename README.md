@@ -53,6 +53,17 @@ The tool uses the Landlock Linux Security Module (LSM) via the landrun CLI to en
 Nix closures provide a precise allowlist for executables. Only the binaries in the packages list and their dependencies can run.
 The sandbox replaces your home directory with a private state directory. This prevents access to your real ~/.ssh, ~/.config, or ~/.aws folders. Note: if you use `filesystem.ro` to expose specific files in your home directory, sibling files in the same directory become readable (see Threat model).
 
+## ai-cage vs other Nix jailing options
+
+If you are already using Nix, there are several ways to sandbox AI agents. This is the practical comparison:
+
+- **ai-cage (Landlock + landrun):** best balance for local AI coding workflows. Same UID, same filesystem, low friction, no root required.
+- **[jailed-agents](https://github.com/andersonjoseph/jailed-agents) (bubblewrap/jail.nix):** stronger mount-namespace isolation, but typically more operational overhead (bind mounts, ownership/watcher edge cases, and more moving parts).
+- **`nix develop` / pure shells:** excellent for reproducibility and dependency isolation, but not a security boundary by itself; processes still run with your user permissions.
+- **NixOS containers / podman-nix patterns:** stronger isolation primitives and cleaner network separation, but heavier setup and more workflow overhead for day-to-day editing.
+
+For the threat model “AI can edit this repo but should not read my secrets,” ai-cage aims for strong practical protection with minimal developer friction.
+
 ## Requirements
 
 - Linux kernel 5.13 or newer for filesystem restrictions.

@@ -30,6 +30,17 @@ Containers (Docker/Podman/bwrap) isolate via mount namespaces. Landlock keeps th
 
 **Tradeoff:** Landlock is access control, not full environment virtualization. It does not provide PID/network/mount namespaces.
 
+## ai-cage vs other Nix jailing options
+
+If you're already in the Nix ecosystem, there are multiple ways to sandbox AI tools. Here's the practical comparison I ended up with:
+
+- **ai-cage (Landlock + landrun):** best for day-to-day AI coding on your real workspace. Same UID, same filesystem, low friction, no root required.
+- **[jailed-agents](https://github.com/andersonjoseph/jailed-agents) (bubblewrap/jail.nix):** stronger filesystem illusion via mount namespaces, but more operational friction (bind mounts, occasional ownership/watcher weirdness, more moving parts).
+- **nix develop / pure shells only:** reproducibility and dependency isolation are great, but this is **not** a security boundary by itself; processes still run with your user permissions.
+- **NixOS containers / podman-nix setups:** stronger isolation layers and cleaner network separation, but heavier workflow and more setup complexity for local editing loops.
+
+For the specific threat model "AI can edit my repo but should not read my secrets," ai-cage is the best balance of security and usability I found.
+
 ## Using it
 
 Import `github:rolfst/ai-cage` into your flake and define a cage wrapper:
@@ -52,7 +63,7 @@ caged-agent = ai-cage.lib.cage { inherit pkgs; } {
 
 `ai-cage` ships three profiles (`offline`, `aiAgent`, `devNet`) and supports custom profiles.
 
-## 2026 update: hard-earned lessons
+## Hard-earned lessons
 
 - **`/dev` and `/tmp` are mandatory for real workloads.** Restricting too aggressively breaks common tools. ai-cage now explicitly grants safe required device paths and `/tmp` access.
 - **Home-directory sibling file visibility exists in Landlock path traversal.** If you allow `--ro $HOME/.gitconfig`, sibling files in `$HOME/` (like `.bashrc`) can become readable. Subdirectories like `.ssh/` and `.gnupg/` remain blocked unless explicitly granted.
