@@ -185,6 +185,13 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   # /dev/stdin, /dev/stdout, /dev/stderr are inherited file descriptors and
   # do not need Landlock rules. /dev/fd is a symlink to /proc/self/fd.
 
+  # /proc is a virtual filesystem that many programs need for self-inspection
+  # (e.g. /proc/self/exe, /proc/self/maps, /proc/cpuinfo).  Landlock cannot
+  # restrict the contents of procfs — it is kernel-managed — but without a
+  # rule the open() syscall on /proc paths is denied.  Rust, Go, and many
+  # C runtimes abort on startup if /proc is inaccessible.
+  landrunArgs+=("--ro" "/proc")
+
   # /lib64 is needed on NixOS for nix-ld compatibility. Non-Nix dynamically-
   # linked binaries (e.g. npm-installed tools) use /lib64/ld-linux-x86-64.so.2
   # which is a symlink to the nix-ld shim. Without this, such binaries crash

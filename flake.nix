@@ -107,8 +107,8 @@
             echo "all checks passed" > $out/result
           '';
 
-          # Verify that the /lib64 nix-ld compatibility path is included in
-          # the generated wrapper script (conditional on /lib64 existing).
+          # Verify that the /lib64 nix-ld compatibility path and /proc access
+          # are included in the generated wrapper script.
           nix-ld-compat = pkgs.runCommand "check-nix-ld-compat" { } ''
             script="${self.packages.${system}.cage-test}/bin/cage-test-cage"
 
@@ -118,6 +118,13 @@
               echo "FAIL: /lib64 nix-ld compatibility path missing from wrapper"
               echo "--- relevant section ---"
               grep -n 'lib64\|nix-ld\|Essential' "$script" || true
+              exit 1
+            fi
+
+            if grep -qF '"--ro" "/proc"' "$script"; then
+              echo "PASS: /proc access present in wrapper"
+            else
+              echo "FAIL: /proc access missing from wrapper"
               exit 1
             fi
 
