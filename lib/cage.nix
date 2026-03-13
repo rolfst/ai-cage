@@ -36,10 +36,27 @@ let
     env = { };
   };
 
+  # recursiveUpdate that concatenates (and deduplicates) lists instead of
+  # replacing them.  This ensures that e.g. a profile's filesystem.ro
+  # paths are preserved when the consumer also supplies filesystem.ro.
+  mergeWith = base: overlay:
+    lib.mapAttrs (key: baseVal:
+      if builtins.hasAttr key overlay then
+        let overlayVal = overlay.${key}; in
+        if builtins.isAttrs baseVal && builtins.isAttrs overlayVal then
+          mergeWith baseVal overlayVal
+        else if builtins.isList baseVal && builtins.isList overlayVal then
+          lib.unique (baseVal ++ overlayVal)
+        else
+          overlayVal
+      else
+        baseVal
+    ) base // (lib.filterAttrs (k: _: !(builtins.hasAttr k base)) overlay);
+
   userCfg = {
     inherit name argv workspace packages filesystem nixStore network ssh env;
   };
-  cfg = lib.recursiveUpdate (lib.recursiveUpdate defaults profileCfg) userCfg;
+  cfg = mergeWith (mergeWith defaults profileCfg) userCfg;
 
   landrun =
     if pkgs ? landrun then pkgs.landrun else pkgs.callPackage ../pkgs/landrun.nix { };

@@ -62,6 +62,20 @@
             };
           };
 
+          # Test: profile ro paths must survive when user also supplies filesystem.ro.
+          # This reproduces the DNS resolution bug where aiAgent's /etc/resolv.conf
+          # was silently dropped when the user set filesystem.ro for their own paths.
+          cage-test-profile-ro-merge = self.lib.cage { inherit pkgs; } {
+            name = "cage-test-profile-merge";
+            profile = "aiAgent";
+            argv = [ "${pkgs.bash}/bin/bash" "-lc" "echo profile-merge OK" ];
+            packages = with pkgs; [ bash coreutils ];
+            workspace = { path = "$PWD"; };
+            filesystem = {
+              ro = [ "$HOME/.cache/npm/lib" ];
+            };
+          };
+
           default = pkgs.landrun;
         };
 
@@ -86,6 +100,42 @@
               echo "PASS: parent rox path preserved"
             else
               echo "FAIL: parent rox path missing"
+              exit 1
+            fi
+
+            mkdir -p $out
+            echo "all checks passed" > $out/result
+          '';
+
+          # Verify that profile-provided ro paths (like /etc/resolv.conf from
+          # aiAgent) are preserved when the user also provides filesystem.ro.
+          profile-ro-merge = pkgs.runCommand "check-profile-ro-merge" { } ''
+            script="${self.packages.${system}.cage-test-profile-ro-merge}/bin/cage-test-profile-merge-cage"
+
+            fail=0
+
+            # The aiAgent profile contributes /etc/resolv.conf — it must survive.
+            for path in /etc/resolv.conf /etc/hosts /etc/nsswitch.conf /etc/passwd /etc/group; do
+              if grep -qF "\"$path\"" "$script"; then
+                echo "PASS: profile ro path $path preserved"
+              else
+                echo "FAIL: profile ro path $path missing from generated script"
+                fail=1
+              fi
+            done
+
+            # The user's own ro path must also be present.
+            if grep -q 'npm/lib' "$script"; then
+              echo "PASS: user ro path \$HOME/.cache/npm/lib present"
+            else
+              echo "FAIL: user ro path \$HOME/.cache/npm/lib missing"
+              fail=1
+            fi
+
+            if [[ "$fail" -ne 0 ]]; then
+              echo ""
+              echo "--- full script for debugging ---"
+              cat "$script"
               exit 1
             fi
 
