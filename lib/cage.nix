@@ -61,21 +61,55 @@ let
   storePaths = lib.splitString "\n" (builtins.readFile "${closureInfo}/store-paths");
   filteredStorePaths = builtins.filter (p: p != "") storePaths;
 
+  # All paths that have execute permission (closure + user rox + user rwx).
+  # Used to detect when a less-permissive rule (ro, rw) would shadow an
+  # execute-granting parent in Landlock's most-specific-path-wins model.
+  allExecPaths = filteredStorePaths ++ fsRox ++ fsRwx;
+
+  # Check whether `child` is equal to or a subdirectory of `parent`.
+  # Both may contain unexpanded variables like $HOME, so this is a
+  # conservative string-prefix check.  It works correctly for literal
+  # paths and for paths that share the same variable prefix.
+  isSubpathOf = parent: child:
+    let p = if lib.hasSuffix "/" parent then parent else parent + "/";
+    in child == parent || lib.hasPrefix p child;
+
+  # True when `path` falls under any entry in `execPaths`.
+  coveredByExec = path:
+    builtins.any (ep: isSubpathOf ep path) allExecPaths;
+
   roxFlagsScript = lib.concatMapStrings (p: ''
     landrunArgs+=("--rox" "${p}")
   '') filteredStorePaths;
 
-  roFlagsScript = lib.concatMapStrings (p: ''
-    landrunArgs+=("--ro" "${p}")
-  '') fsRo;
+  # Promote ro paths to rox when they fall under an existing rox/rwx
+  # parent.  Landlock applies the most-specific rule, so a child --ro
+  # would silently strip the execute bit granted by a parent --rox.
+  roFlagsScript = lib.concatMapStrings (p:
+    if coveredByExec p then ''
+      landrunArgs+=("--rox" "${p}")
+    '' else ''
+      landrunArgs+=("--ro" "${p}")
+    ''
+  ) fsRo;
 
   roxUserFlagsScript = lib.concatMapStrings (p: ''
     landrunArgs+=("--rox" "${p}")
   '') fsRox;
 
-  rwFlagsScript = lib.concatMapStrings (p: ''
-    landrunArgs+=("--rw" "${p}")
-  '') fsRw;
+  # Same promotion for rw paths under an rwx parent.
+  allWriteExecPaths = fsRwx;
+
+  coveredByWriteExec = path:
+    builtins.any (ep: isSubpathOf ep path) allWriteExecPaths;
+
+  rwFlagsScript = lib.concatMapStrings (p:
+    if coveredByWriteExec p then ''
+      landrunArgs+=("--rwx" "${p}")
+    '' else ''
+      landrunArgs+=("--rw" "${p}")
+    ''
+  ) fsRw;
 
   rwxFlagsScript = lib.concatMapStrings (p: ''
     landrunArgs+=("--rwx" "${p}")
