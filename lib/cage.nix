@@ -184,6 +184,15 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   # Essential system paths that almost every program needs.
   # /dev/stdin, /dev/stdout, /dev/stderr are inherited file descriptors and
   # do not need Landlock rules. /dev/fd is a symlink to /proc/self/fd.
+
+  # /lib64 is needed on NixOS for nix-ld compatibility. Non-Nix dynamically-
+  # linked binaries (e.g. npm-installed tools) use /lib64/ld-linux-x86-64.so.2
+  # which is a symlink to the nix-ld shim. Without this, such binaries crash
+  # with SIGABRT because the dynamic linker can't be resolved under Landlock.
+  if [[ -d /lib64 ]]; then
+    landrunArgs+=("--rox" "/lib64")
+  fi
+
   landrunArgs+=("--rw" "/dev/null")
   landrunArgs+=("--rw" "/dev/zero")
   landrunArgs+=("--ro" "/dev/urandom")

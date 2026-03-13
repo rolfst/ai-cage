@@ -107,6 +107,24 @@
             echo "all checks passed" > $out/result
           '';
 
+          # Verify that the /lib64 nix-ld compatibility path is included in
+          # the generated wrapper script (conditional on /lib64 existing).
+          nix-ld-compat = pkgs.runCommand "check-nix-ld-compat" { } ''
+            script="${self.packages.${system}.cage-test}/bin/cage-test-cage"
+
+            if grep -qF '/lib64' "$script"; then
+              echo "PASS: /lib64 nix-ld compatibility path present in wrapper"
+            else
+              echo "FAIL: /lib64 nix-ld compatibility path missing from wrapper"
+              echo "--- relevant section ---"
+              grep -n 'lib64\|nix-ld\|Essential' "$script" || true
+              exit 1
+            fi
+
+            mkdir -p $out
+            echo "all checks passed" > $out/result
+          '';
+
           # Verify that profile-provided ro paths (like /etc/resolv.conf from
           # aiAgent) are preserved when the user also provides filesystem.ro.
           profile-ro-merge = pkgs.runCommand "check-profile-ro-merge" { } ''
