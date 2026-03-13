@@ -120,7 +120,7 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   landrunArgs+=("--log-level" "error")
 
   ${lib.optionalString useStoreRead ''
-    landrunArgs+=("--ro" "/nix/store")
+    landrunArgs+=("--rox" "/nix/store")
   ''}
 
   ${roxFlagsScript}
