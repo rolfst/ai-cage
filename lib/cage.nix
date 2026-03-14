@@ -142,12 +142,40 @@ let
     fi
   '') passEnv;
 
-  setEnvScript = lib.concatStringsSep "\n" (
+  # Default XDG environment variables set by the cage.  env.set entries for
+  # the same keys take precedence — the merge is performed at Nix evaluation
+  # time so only one --env flag per key is ever passed to landrun.  This
+  # avoids the first-wins behaviour of execve(2) / getenv(3) that would
+  # otherwise cause a duplicate XDG_CONFIG_HOME=... from env.set to be
+  # silently ignored.
+  defaultXdgEnv = {
+    HOME = "$STATE/home";
+    XDG_CONFIG_HOME = "$STATE/config";
+    XDG_STATE_HOME = "$STATE/state";
+    XDG_CACHE_HOME = "$STATE/cache";
+  };
+
+  # Split env.set into XDG-override keys and additional keys.
+  xdgOverrides = lib.filterAttrs (k: _: builtins.hasAttr k defaultXdgEnv) setEnv;
+  extraSetEnv  = lib.filterAttrs (k: _: !(builtins.hasAttr k defaultXdgEnv)) setEnv;
+
+  # Merge: env.set wins over defaults for any XDG key present in both.
+  resolvedXdgEnv = defaultXdgEnv // xdgOverrides;
+
+  xdgEnvScript = lib.concatStringsSep "\n" (
     lib.mapAttrsToList
       (k: v: ''
         landrunArgs+=("--env" "${k}=${toString v}")
       '')
-      setEnv
+      resolvedXdgEnv
+  );
+
+  extraSetEnvScript = lib.concatStringsSep "\n" (
+    lib.mapAttrsToList
+      (k: v: ''
+        landrunArgs+=("--env" "${k}=${toString v}")
+      '')
+      extraSetEnv
   );
 
   argvScript = lib.concatStringsSep " " (map lib.escapeShellArg cfg.argv);
@@ -212,14 +240,11 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   landrunArgs+=("--rw" "$STATE")
   landrunArgs+=("--rw" "$WORKSPACE")
 
-  landrunArgs+=("--env" "HOME=$STATE/home")
-  landrunArgs+=("--env" "XDG_CONFIG_HOME=$STATE/config")
-  landrunArgs+=("--env" "XDG_STATE_HOME=$STATE/state")
-  landrunArgs+=("--env" "XDG_CACHE_HOME=$STATE/cache")
+  ${xdgEnvScript}
   landrunArgs+=("--env" "PATH=${fullPath}")
 
   ${passEnvScript}
-  ${setEnvScript}
+  ${extraSetEnvScript}
 
   if [[ "${if forwardSshAgent then "1" else "0"}" == "1" ]] && [[ -n "''${SSH_AUTH_SOCK:-}" ]]; then
     if [[ -S "$SSH_AUTH_SOCK" ]]; then
