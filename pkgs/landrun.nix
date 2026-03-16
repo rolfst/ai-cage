@@ -2,13 +2,13 @@
 
 buildGoModule rec {
   pname = "landrun";
-  version = "0.1.14";
+  version = "0.1.15";
 
   src = fetchFromGitHub {
     owner = "Zouuup";
     repo = "landrun";
     rev = "v${version}";
-    hash = "sha256-6TWcsJpebfLnUTYflP2j0/Tuv4PdFx/sMATc4Km1AIE=";
+    hash = "sha256-yfK7Q3FKXp5pXVBNV0w/vN0xuoaTxWCq19ziBQnLapg=";
   };
 
   vendorHash = "sha256-Bs5b5w0mQj1MyT2ctJ7V38Dy60moB36+T8TFH38FA08=";
