@@ -328,15 +328,19 @@ Run the test script to verify the sandbox is working correctly.
 ```text
 .
 ├── flake.nix
+├── docs/
+│   ├── AI_CAGE_PLUGIN_SETUP.md  # Plugin setup guide
+│   ├── landlock_blog.md         # Landlock background article
+│   └── landlock.html            # Landlock reference
 ├── examples/
 │   ├── claude-code.nix    # Anthropic Claude Code
 │   ├── codex.nix          # OpenAI Codex
 │   ├── copilot-cli.nix    # GitHub Copilot CLI
 │   ├── gemini-cli.nix     # Google Gemini CLI
+│   ├── nodejs-server.nix  # Node.js server project with caged opencode
 │   ├── opencode.nix       # opencode (from nixpkgs)
 │   ├── opencode-npm.nix   # opencode (from npm registry)
-│   ├── opencode-global.nix # opencode (globally installed via npm)
-│   └── nodejs-server.nix  # Node.js server project with caged opencode
+│   └── opencode-global.nix # opencode (globally installed via npm)
 ├── lib/
 │   ├── cage.nix         # Core logic for generating the sandbox wrapper
 │   ├── profiles.nix     # Pre-defined configurations
