@@ -3,6 +3,7 @@
 {
   name,
   profile ? null,
+  tools ? [ ],
   argv,
   workspace ? { },
   packages ? [ ],
@@ -11,10 +12,12 @@
   network ? { },
   ssh ? { },
   env ? { },
+  configDirs ? [ ],
   ...
 }:
 let
   profiles = import ./profiles.nix;
+  toolRegistry = import ./tools.nix;
 
   profileCfg =
     if profile == null then
@@ -34,6 +37,7 @@ let
     network = { };
     ssh = { };
     env = { };
+    configDirs = [ ];
   };
 
   # recursiveUpdate that concatenates (and deduplicates) lists instead of
@@ -53,8 +57,20 @@ let
         baseVal
     ) base // (lib.filterAttrs (k: _: !(builtins.hasAttr k base)) overlay);
 
+  # Resolve tool names to their registry entries.  Unknown names produce a
+  # clear error listing the available tools.
+  resolvedToolConfigs = map (t:
+    if builtins.hasAttr t toolRegistry then toolRegistry.${t}
+    else throw "ai-cage: unknown tool \"${t}\". Known tools: ${builtins.concatStringsSep ", " (builtins.attrNames toolRegistry)}"
+  ) tools;
+
+  # Merge all resolved tool configDirs into a single deduplicated list.
+  toolConfigDirs = lib.unique (builtins.concatMap (tc: tc.configDirs or [ ]) resolvedToolConfigs);
+
   userCfg = {
     inherit name argv workspace packages filesystem nixStore network ssh env;
+    # User-supplied configDirs are appended to tool-derived ones.
+    configDirs = lib.unique (toolConfigDirs ++ configDirs);
   };
   cfg = mergeWith (mergeWith defaults profileCfg) userCfg;
 
@@ -73,6 +89,7 @@ let
   useStoreRead = cfg.nixStore.read or true;
   storeExecMode = cfg.nixStore.exec or "closure";
   forwardSshAgent = cfg.ssh.agentForward or false;
+  configDirsList = cfg.configDirs;
 
   closureInfo = pkgs.closureInfo { rootPaths = cfg.packages; };
   storePaths = lib.splitString "\n" (builtins.readFile "${closureInfo}/store-paths");
@@ -182,6 +199,44 @@ let
   computedPath = lib.makeBinPath cfg.packages;
   extraPath = lib.concatStringsSep ":" appendPath;
   fullPath = if appendPath == [ ] then computedPath else "${computedPath}:${extraPath}";
+
+  # configDirs: paths relative to $HOME that should be symlinked from the
+  # cage's private home into the real home directory and exposed as --ro.
+  # This lets caged tools read their config files at the expected locations.
+  #
+  # Each entry (e.g. ".config/opencode", ".claude") produces:
+  #   1. A symlink  $STATE/home/<entry> -> $ORIG_HOME/<entry>
+  #   2. For .config/* entries, also $STATE/config/<sub> -> $ORIG_HOME/.config/<sub>
+  #      so XDG_CONFIG_HOME-aware tools find the config too.
+  #   3. A --ro Landlock rule for $ORIG_HOME/<entry>.
+  configDirsSymlinkScript = lib.concatMapStrings (relPath: ''
+    if [[ -e "$ORIG_HOME/${relPath}" ]]; then
+      mkdir -p "$STATE/home/$(dirname "${relPath}")"
+      ln -sfn "$ORIG_HOME/${relPath}" "$STATE/home/${relPath}"
+  '' + (
+    # If the path is under .config/, also symlink into XDG_CONFIG_HOME ($STATE/config/)
+    # so tools that use XDG_CONFIG_HOME find the config.
+    let
+      prefix = ".config/";
+      hasPrefix = lib.hasPrefix prefix relPath;
+      subPath = lib.removePrefix prefix relPath;
+    in
+    if hasPrefix then "  mkdir -p \"$STATE/config/$(dirname \"${subPath}\")\"\n  ln -sfn \"$ORIG_HOME/${relPath}\" \"$STATE/config/${subPath}\"\n" else ""
+  ) + ''
+    fi
+  '') configDirsList;
+
+  configDirsRoScript = lib.concatMapStrings (relPath:
+    if coveredByExec "\$HOME/${relPath}" then ''
+      if [[ -e "$ORIG_HOME/${relPath}" ]]; then
+        landrunArgs+=("--rox" "$ORIG_HOME/${relPath}")
+      fi
+    '' else ''
+      if [[ -e "$ORIG_HOME/${relPath}" ]]; then
+        landrunArgs+=("--ro" "$ORIG_HOME/${relPath}")
+      fi
+    ''
+  ) configDirsList;
 in
 assert lib.assertMsg (cfg.argv != [ ]) "ai-cage: argv must not be empty";
 assert lib.assertMsg (storeExecMode == "closure") "ai-cage: nixStore.exec currently supports only \"closure\"";
@@ -191,6 +246,10 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   ORIG_HOME="''${HOME:?HOME must be set}"
   STATE="$ORIG_HOME/.local/state/ai-cage/${cfg.name}"
   mkdir -p "$STATE"/{home,config,state,cache}
+
+  # Symlink host config directories into the cage's private home so tools
+  # find their configuration at the expected paths (read-only).
+  ${configDirsSymlinkScript}
 
   WORKSPACE="${workspacePath}"
   cd "$WORKSPACE"
@@ -207,6 +266,7 @@ pkgs.writeShellScriptBin "${cfg.name}-cage" ''
   ${roxUserFlagsScript}
   ${rwFlagsScript}
   ${rwxFlagsScript}
+  ${configDirsRoScript}
   ${netFlagsScript}
 
   # Essential system paths that almost every program needs.

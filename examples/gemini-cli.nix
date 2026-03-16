@@ -41,6 +41,11 @@
         env = {
           pass = [ "TERM" "LANG" "GEMINI_API_KEY" "GOOGLE_API_KEY" "GOOGLE_CLOUD_PROJECT" "GOOGLE_CLOUD_LOCATION" ];
         };
+
+        # Declare which AI tool(s) run in this cage.  The tool registry
+        # (lib/tools.nix) automatically exposes the correct host config
+        # directories read-only inside the sandbox.
+        tools = [ "gemini-cli" ];
       };
     };
 }

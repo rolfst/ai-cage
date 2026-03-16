@@ -118,6 +118,12 @@
           # find the `copilot` binary by name (not just by full path).
           appendPath = [ "$HOME/.npm-global/bin" ];
         };
+
+        # Declare which AI tool(s) run in this cage.  The tool registry
+        # (lib/tools.nix) automatically exposes the correct host config
+        # directories read-only inside the sandbox.  Multiple tools can be
+        # listed — their config paths are merged and deduplicated.
+        tools = [ "opencode" "copilot-cli" ];
       };
 
       # A normal dev shell for when you want to work without the cage.

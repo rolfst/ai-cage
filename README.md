@@ -117,6 +117,8 @@ Add ai-cage as a flake input and define a cage in your outputs.
 | env.pass | list of strings | [] | Host environment variables to pass through. |
 | env.set | attrset | {} | Environment variables to set to specific values. |
 | env.appendPath | list of strings | [] | Extra directories to append to PATH. Use for binaries outside the Nix store. |
+| tools | list of strings | [] | AI tool names from the built-in registry (`lib/tools.nix`). Automatically exposes each tool's config directories read-only. See "Exposing host config files" below. |
+| configDirs | list of strings | [] | Extra paths relative to `$HOME` to expose read-only. Appended to tool-derived paths. See "Exposing host config files" below. |
 
 ## Profiles reference
 
@@ -127,6 +129,8 @@ Add ai-cage as a flake input and define a cage in your outputs.
 ## How to ALLOW access
 
 - Read a config file: `filesystem.ro = [ "/etc/gitconfig" ]`
+- Expose tool config from host home: `tools = [ "opencode" ]`
+- Expose extra config directories: `configDirs = [ ".config/my-custom-tool" ]`
 - Execute an external binary: `filesystem.rox = [ "$HOME/.npm-global" ]`
 - Put external binaries on PATH: `env.appendPath = [ "$HOME/.npm-global/bin" ]`
 - Write to a directory: `filesystem.rw = [ "/tmp/build-output" ]`
@@ -146,6 +150,49 @@ The sandbox uses a default-deny model. If you don't explicitly allow it, it's bl
 
 Example: To block all network, use `profile = "offline"` or omit `network.connectTcp`.
 Example: To allow git clone but block git push over SSH, only allow port 443 and omit port 22.
+
+## Exposing host config files
+
+AI coding tools store configuration, custom commands, and settings in directories under your home folder. Because the cage replaces `HOME` and `XDG_CONFIG_HOME` with private state directories, tools cannot find their config files by default.
+
+The `tools` option solves this. Specify which AI tool(s) run inside the cage and their config directories are exposed automatically:
+
+```nix
+tools = [ "opencode" ];              # exposes ~/.config/opencode (read-only)
+tools = [ "claude-code" ];           # exposes ~/.config/claude and ~/.claude
+tools = [ "opencode" "copilot-cli" ]; # multi-tool cage — paths are merged
+```
+
+The tool registry lives in `lib/tools.nix`. Each entry maps a tool name to its known config paths. The known tools are:
+
+| Tool name | Config directories exposed |
+| :--- | :--- |
+| `opencode` | `.config/opencode` |
+| `claude-code` | `.config/claude`, `.claude` |
+| `copilot-cli` | `.config/.copilot`, `.config/gh` |
+| `codex` | `.codex` |
+| `gemini-cli` | `.gemini` |
+
+To support a new tool, add an entry to `lib/tools.nix`.
+
+### How it works
+
+For each config directory, the cage:
+
+1. Creates a symlink from the cage's private home to the real path on the host.
+2. For paths under `.config/`, also symlinks into the cage's `XDG_CONFIG_HOME` so XDG-aware tools find the config.
+3. Adds a read-only Landlock rule so the symlink target is accessible inside the sandbox.
+
+The config directories are **read-only** — the caged tool can read settings but cannot modify them. If a directory does not exist on the host, it is silently skipped.
+
+### Appending custom config paths
+
+If you have additional config directories beyond what the tool registry provides, use `configDirs` to append them. The two lists are merged and deduplicated:
+
+```nix
+tools = [ "opencode" ];                        # auto: .config/opencode
+configDirs = [ ".config/my-custom-prompts" ];   # extra: your custom path
+```
 
 ## Supported tools
 
@@ -172,6 +219,7 @@ packages.x86_64-linux.claude = ai-cage.lib.cage { inherit pkgs; } {
     claude-code git coreutils findutils gnugrep ripgrep fd bash
   ];
   env = { pass = [ "TERM" "LANG" "ANTHROPIC_API_KEY" ]; };
+  tools = [ "claude-code" ];
 };
 ```
 
@@ -291,7 +339,8 @@ Run the test script to verify the sandbox is working correctly.
 │   └── nodejs-server.nix  # Node.js server project with caged opencode
 ├── lib/
 │   ├── cage.nix         # Core logic for generating the sandbox wrapper
-│   └── profiles.nix     # Pre-defined configurations
+│   ├── profiles.nix     # Pre-defined configurations
+│   └── tools.nix        # Tool registry (tool name → config directories)
 ├── pkgs/
 │   └── landrun.nix      # Nix expression for the landrun CLI
 └── tests/

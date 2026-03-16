@@ -9,11 +9,12 @@
   outputs = { self, nixpkgs, flake-utils }:
     let
       profiles = import ./lib/profiles.nix;
+      tools = import ./lib/tools.nix;
       mkCage = import ./lib/cage.nix;
     in
     {
       lib = {
-        inherit profiles;
+        inherit profiles tools;
         # Consumer usage:
         # ai-cage.lib.cage { inherit pkgs; } { name = "foo"; ... }
         cage = { pkgs }:
@@ -76,6 +77,16 @@
             };
           };
 
+          # Test: configDirs produces symlinks and --ro flags for host config paths.
+          cage-test-configdirs = self.lib.cage { inherit pkgs; } {
+            name = "cage-test-configdirs";
+            profile = "aiAgent";
+            argv = [ "${pkgs.bash}/bin/bash" "-lc" "echo configdirs OK" ];
+            packages = with pkgs; [ bash coreutils ];
+            workspace = { path = "$PWD"; };
+            tools = [ "opencode" "claude-code" ];
+          };
+
           default = pkgs.landrun;
         };
 
@@ -125,6 +136,73 @@
               echo "PASS: /proc access present in wrapper"
             else
               echo "FAIL: /proc access missing from wrapper"
+              exit 1
+            fi
+
+            mkdir -p $out
+            echo "all checks passed" > $out/result
+          '';
+
+          # Verify that configDirs produces the expected symlinks and --ro
+          # Landlock rules in the generated wrapper script.
+          configdirs = pkgs.runCommand "check-configdirs" { } ''
+            script="${self.packages.${system}.cage-test-configdirs}/bin/cage-test-configdirs-cage"
+
+            fail=0
+
+            # 1. All tool configDirs must produce --ro flags pointing at $ORIG_HOME.
+            for relpath in .config/opencode .config/claude .claude; do
+              if grep -qF "\"--ro\" \"\$ORIG_HOME/$relpath\"" "$script"; then
+                echo "PASS: --ro flag for $relpath present"
+              else
+                echo "FAIL: --ro flag for \$ORIG_HOME/$relpath missing"
+                fail=1
+              fi
+            done
+
+            # 2. .config/opencode must have a symlink into STATE/home/.config/
+            if grep -qF 'ln -sfn "$ORIG_HOME/.config/opencode" "$STATE/home/.config/opencode"' "$script"; then
+              echo "PASS: home symlink for .config/opencode present"
+            else
+              echo "FAIL: home symlink for .config/opencode missing"
+              fail=1
+            fi
+
+            # 3. .config/opencode must ALSO have a symlink into STATE/config/ (XDG)
+            if grep -qF 'ln -sfn "$ORIG_HOME/.config/opencode" "$STATE/config/opencode"' "$script"; then
+              echo "PASS: XDG_CONFIG_HOME symlink for opencode present"
+            else
+              echo "FAIL: XDG_CONFIG_HOME symlink for opencode missing"
+              fail=1
+            fi
+
+            # 4. .config/claude must ALSO have a symlink into STATE/config/ (XDG)
+            if grep -qF 'ln -sfn "$ORIG_HOME/.config/claude" "$STATE/config/claude"' "$script"; then
+              echo "PASS: XDG_CONFIG_HOME symlink for claude present"
+            else
+              echo "FAIL: XDG_CONFIG_HOME symlink for claude missing"
+              fail=1
+            fi
+
+            # 5. .claude must have a home symlink but NOT an XDG symlink
+            if grep -qF 'ln -sfn "$ORIG_HOME/.claude" "$STATE/home/.claude"' "$script"; then
+              echo "PASS: home symlink for .claude present"
+            else
+              echo "FAIL: home symlink for .claude missing"
+              fail=1
+            fi
+
+            if grep -qF '$STATE/config/.claude' "$script"; then
+              echo "FAIL: .claude should not have XDG_CONFIG_HOME symlink"
+              fail=1
+            else
+              echo "PASS: .claude correctly has no XDG symlink"
+            fi
+
+            if [[ "$fail" -ne 0 ]]; then
+              echo ""
+              echo "--- full script for debugging ---"
+              cat "$script"
               exit 1
             fi
 

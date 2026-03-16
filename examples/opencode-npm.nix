@@ -11,7 +11,12 @@
     ai-cage.url = "github:rolfst/ai-cage";
   };
 
-  outputs = { nixpkgs, ai-cage, ... }:
+  outputs =
+    {
+      nixpkgs,
+      ai-cage,
+      ...
+    }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -21,6 +26,21 @@
 
       version = "1.2.21";
 
+      # Caged opencode that's landlocked via ai-cage
+      #
+      # IMPORTANT: OpenCode uses plugin systems (npm/bun packages) that require
+      # special configuration to work inside ai-cage. See AI_CAGE_PLUGIN_SETUP.md
+      # for complete documentation on:
+      #   - Why plugins fail in caged environments
+      #   - How to sync plugins between host and caged caches
+      #   - Troubleshooting agent/plugin loading issues
+      #   - Maintaining plugin versions
+      #
+      # Quick reference:
+      #   - Plugins MUST be installed in: ~/.local/state/ai-cage/opencode/cache/opencode/
+      #   - Versions MUST match host cache: ~/.cache/opencode/
+      #   - Update command: cd ~/.local/state/ai-cage/opencode/cache/opencode && bun add <plugin>@<version>
+      #
       opencode-from-npm = pkgs.stdenvNoCC.mkDerivation {
         pname = "opencode";
         inherit version;
@@ -45,8 +65,8 @@
           mainProgram = "opencode";
         };
       };
-
-    in {
+    in
+    {
       packages.${system}.opencode-npm = ai-cage.lib.cage { inherit pkgs; } {
         name = "opencode-npm";
         profile = "aiAgent";
@@ -59,19 +79,30 @@
         # cannot be executed. Only add packages the agent actually shells out to.
         # Remove any that the tool bundles itself or that you don't need.
         packages = [
-          opencode-from-npm   # the agent itself (fetched from npm registry)
-          pkgs.git            # version control
-          pkgs.coreutils      # ls, cat, mkdir, etc.
-          pkgs.findutils      # find, xargs
-          pkgs.gnugrep        # grep
-          pkgs.ripgrep        # fast grep (used by many agents)
-          pkgs.fd             # fast find (used by many agents)
-          pkgs.bash           # shell for subprocesses
+          opencode-from-npm # the agent itself (fetched from npm registry)
+          pkgs.git # version control
+          pkgs.coreutils # ls, cat, mkdir, etc.
+          pkgs.findutils # find, xargs
+          pkgs.gnugrep # grep
+          pkgs.ripgrep # fast grep (used by many agents)
+          pkgs.fd # fast find (used by many agents)
+          pkgs.bash # shell for subprocesses
         ];
 
         env = {
-          pass = [ "TERM" "LANG" "ANTHROPIC_API_KEY" "OPENAI_API_KEY" "GEMINI_API_KEY" ];
+          pass = [
+            "TERM"
+            "LANG"
+            "ANTHROPIC_API_KEY"
+            "OPENAI_API_KEY"
+            "GEMINI_API_KEY"
+          ];
         };
+
+        # Declare which AI tool(s) run in this cage.  The tool registry
+        # (lib/tools.nix) automatically exposes the correct host config
+        # directories read-only inside the sandbox.
+        tools = [ "opencode" ];
       };
     };
 }

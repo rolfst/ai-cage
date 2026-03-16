@@ -45,6 +45,11 @@
         env = {
           pass = [ "TERM" "LANG" "OPENAI_API_KEY" ];
         };
+
+        # Declare which AI tool(s) run in this cage.  The tool registry
+        # (lib/tools.nix) automatically exposes the correct host config
+        # directories read-only inside the sandbox.
+        tools = [ "codex" ];
       };
     };
 }

@@ -42,6 +42,11 @@
         env = {
           pass = [ "TERM" "LANG" "GITHUB_TOKEN" "GH_TOKEN" "COPILOT_GITHUB_TOKEN" ];
         };
+
+        # Declare which AI tool(s) run in this cage.  The tool registry
+        # (lib/tools.nix) automatically exposes the correct host config
+        # directories read-only inside the sandbox.
+        tools = [ "copilot-cli" ];
       };
     };
 }
